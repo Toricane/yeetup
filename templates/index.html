@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>yeetup | meetups for youth</title>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <link
+            rel="stylesheet"
+            href="{{ url_for('static', filename='css/style.css') }}"
+        />
+        <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    </head>
+    <body>
+        <h1>yeetup</h1>
+        <div id="response"></div>
+        <!-- <textarea id="question" name="question" rows="1"></textarea> -->
+        <div class="input-container">
+            <button id="micButton">🎤</button>
+            <textarea id="question" name="question" rows="1"></textarea>
+        </div>
+        <script>
+            const textarea = document.getElementById("question");
+            const micButton = document.getElementById("micButton");
+            let isRecording = false;
+            let mediaRecorder;
+            let audioChunks = [];
+
+            textarea.setAttribute(
+                "style",
+                "height:" + textarea.scrollHeight + "px;overflow-y:hidden;"
+            );
+            textarea.addEventListener("input", function () {
+                this.style.height = "auto";
+                this.style.height = this.scrollHeight + "px";
+            });
+
+            textarea.addEventListener("keyup", function (event) {
+                if (event.key === "Enter" && !event.shiftKey) {
+                    let questionValue = textarea.value;
+                    questionValue = questionValue.replace(/\n/g, "\n\n");
+                    textarea.value = "";
+                    textarea.style.height = "auto";
+                    sendMessage(questionValue);
+                }
+            });
+            textarea.addEventListener("keydown", function (event) {
+                if (event.key === "Enter" && !event.shiftKey) {
+                    event.preventDefault();
+                }
+            });
+
+            micButton.addEventListener("click", function () {
+                if (!isRecording) {
+                    startRecording();
+                    micButton.textContent = "⏹️";
+                } else {
+                    stopRecording();
+                    micButton.textContent = "🎤";
+                }
+                isRecording = !isRecording;
+            });
+
+            function startRecording() {
+                navigator.mediaDevices
+                    .getUserMedia({ audio: true })
+                    .then((stream) => {
+                        mediaRecorder = new MediaRecorder(stream);
+                        mediaRecorder.start();
+
+                        mediaRecorder.addEventListener(
+                            "dataavailable",
+                            (event) => {
+                                audioChunks.push(event.data);
+                            }
+                        );
+
+                        mediaRecorder.addEventListener("stop", () => {
+                            const audioBlob = new Blob(audioChunks, {
+                                type: "audio/wav",
+                            });
+                            const audioUrl = URL.createObjectURL(audioBlob);
+                            const audio = new Audio(audioUrl);
+                            audioChunks = [];
+                            processAudio(audioBlob);
+                        });
+                    })
+                    .catch((error) => {
+                        console.error("Microphone access denied:", error);
+                    });
+            }
+
+            function stopRecording() {
+                mediaRecorder.stop();
+            }
+
+            function processAudio(audioBlob) {
+                const formData = new FormData();
+                formData.append("audio", audioBlob);
+
+                fetch("/process_audio", {
+                    method: "POST",
+                    body: formData,
+                })
+                    .then((response) => response.text())
+                    .then((data) => {
+                        console.log(data);
+                        sendMessage(data);
+                    })
+                    .catch((error) => {
+                        console.error("Error processing audio:", error);
+                    });
+            }
+
+            function getCookie(name) {
+                const value = `; ${document.cookie}`;
+                const parts = value.split(`; ${name}=`);
+                if (parts.length === 2) return parts.at(-1).split(";").at(0);
+            }
+            let sessionId = getCookie("session_id");
+            console.log(sessionId);
+
+            function sendMessage(question) {
+                let responseElem = document.getElementById("response");
+                let messageElem = document.createElement("div");
+                messageElem.innerHTML = marked.parse(question);
+                messageElem.classList.add("message");
+                messageElem.classList.add("user");
+                responseElem.appendChild(messageElem);
+                messageElem.scrollIntoView({ behavior: "smooth" });
+                fetch("/", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/x-www-form-urlencoded",
+                    },
+                    body: `question=${question}`,
+                })
+                    .then((response) => response.json())
+                    .then((data) => {
+                        messageElem = document.createElement("div");
+                        messageElem.innerHTML = marked.parse(data.response);
+                        messageElem.classList.add("message");
+                        messageElem.classList.add("ai");
+                        responseElem.appendChild(messageElem);
+                        messageElem.scrollIntoView({ behavior: "smooth" });
+                        sessionId = data.session_id;
+                        document.cookie = `session_id=${sessionId}`;
+                    });
+            }
+        </script>
+    </body>
+</html>
